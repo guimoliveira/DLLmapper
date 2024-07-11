@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>DLLmapper</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sigma.js/2.4.0/sigma.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/graphology/0.25.4/graphology.umd.min.js"></script>
+    
+  </head>
+  <body style="margin: 0">
+    <input type="file" id="file-selector" accept=".json" style="position: fixed; top: 20px; left: 20px; z-index: 100;">
+    <div id="container" style="width: 100vw; height: 100vh; background: white"></div>
+
+    <script type="module">
+        import force from 'https://cdn.jsdelivr.net/npm/graphology-layout-force@0.2.4/+esm';
+
+        const graph = new graphology.Graph();
+
+        const sigmaInstance = new Sigma(graph, document.getElementById("container"), {zIndex: true});
+        const fileSelector = document.getElementById('file-selector');
+
+        const groups = {};
+        const groupKeys = Object.keys(groups);
+
+        let selectedNode = null;
+
+        fileSelector.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            
+            const reader = new FileReader();
+            reader.addEventListener('load', (event) => {
+                const json = JSON.parse(event.target.result);
+                const dlls = Object.keys(json);
+                const dependents = {};
+
+                graph.clear();
+
+                for (let dll of dlls) {
+                    dependents[dll] = dlls.filter((d) => json[d].includes(dll));
+                    const size = (dependents[dll].length + 1) * 3;
+                    const angle = Math.random() * 6;
+                    const sin = Math.sin(angle);
+                    const cos = Math.cos(angle);
+                    const power = (1 - size / 30);
+
+                    graph.addNode(dll, { 
+                        label: dll, 
+                        size: size, 
+                        x: sin * power, y: cos * power, 
+                        color: createColor(dll),
+                        forceLabel: true,
+                        zIndex: size
+                     });
+                }
+
+                for (let group of groupKeys) {
+                    graph.addNode(group, { 
+                        label: group, 
+                        size: 0, 
+                        x: Math.random(), y: Math.random(), 
+                        color: 'transparent',
+                        forceLabel: true,
+                        zIndex: 0
+                     });
+                }
+
+                for (let dll of dlls) {
+                    for (let dependedDll of dependents[dll]) {
+                        graph.addEdge(dependedDll, dll, { size: 1, color: createColor(dependedDll), type: 'arrow' });
+                    }
+                    for (let group of groupKeys) {
+                        if (groups[group].find((i) => dll.includes(i))) {
+                            graph.addEdge(dll, group, { size: 1, color: 'lightgrey', type: 'line' });
+                        }
+                    }
+                }
+
+                sigmaInstance.setSetting('nodeReducer', (node, data) => {
+                    const res = { ...data };
+                    if (selectedNode && node != selectedNode && !json[selectedNode].includes(node) && !groupKeys.includes(node)) {
+                        res.color = 'lightgrey';
+                        res.zIndex = -1;
+                        res.forceLabel = false;
+                    } 
+                    return res;
+                });
+
+                sigmaInstance.setSetting("edgeReducer", (edge, data) => {
+                    const res = { ...data };
+                    if (selectedNode) {
+                        if (!graph.hasExtremity(edge, selectedNode)) {
+                            res.color = 'lightgrey';
+                        } else {
+                            res.size = 4;
+                            res.zIndex = 5
+                        }
+                    }
+                    return res;
+                });
+
+                sigmaInstance.on("downNode", (e) => {
+                    if (e.node != selectedNode) {
+                        selectedNode = e.node
+                    } else {
+                        selectedNode = null;
+                    }
+                    sigmaInstance.refresh({
+                        skipIndexation: true,
+                    });
+                });
+            });
+            reader.readAsText(file);
+        });
+
+        function createColor(str) {
+            const values = [0, 0, 0];
+            for (let i = 0; i < str.length; i += 3) {
+                values[0] += str.charCodeAt(i) * 20 || 0;
+                values[1] += str.charCodeAt(i + 1) * 20 || 0;
+                values[2] += str.charCodeAt(i + 2) * 20 || 0;
+            }
+            return 'rgb(' + (values[0] % 255) + ',' + (values[1] % 255) + ',' + (values[2] % 255) + ')';
+        }
+
+        setInterval(() => {
+            const positions = force.assign(graph, {maxIterations: 16, settings: {gravity: 0.001}});
+        }, 16);
+
+    </script>
+  </body>
+</html>
